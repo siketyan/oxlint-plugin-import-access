@@ -3,16 +3,25 @@
   "version": "0.1.0",
   "description": "Port of eslint-plugin-import-access for Oxlint powered by TypeScript 7",
   "type": "module",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
+    "build": "tsc",
     "check": "oxlint && oxfmt --check",
     "fix": "oxlint --fix && oxfmt"
   },
   "dependencies": {
     "@oxlint/plugins": "1.74.0",
-    "corsa-oxlint": "1.0.0-beta.2"
+    "corsa-oxlint": "1.0.0-beta.2",
+    "minimatch": "10.2.5"
   },
   "devDependencies": {
+    "@types/node": "24.13.3",
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
     "typescript": "7.0.2"

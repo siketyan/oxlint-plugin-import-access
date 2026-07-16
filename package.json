@@ -1,0 +1,27 @@
+{
+  "name": "oxlint-plugin-import-access",
+  "version": "0.1.0",
+  "description": "Port of eslint-plugin-import-access for Oxlint powered by TypeScript 7",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "check": "oxlint && oxfmt --check",
+    "fix": "oxlint --fix && oxfmt"
+  },
+  "dependencies": {
+    "@oxlint/plugins": "1.74.0",
+    "corsa-oxlint": "1.0.0-beta.2"
+  },
+  "devDependencies": {
+    "oxfmt": "0.59.0",
+    "oxlint": "1.74.0",
+    "typescript": "7.0.2"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.13.1",
+      "onFail": "download"
+    }
+  }
+}

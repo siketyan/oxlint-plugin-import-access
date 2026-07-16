@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/siketyan/oxlint-plugin-import-access/compare/v1.0.0...v1.1.0) (2026-07-16)
+
+
+### Features
+
+* introduce `projects` option to filter tsconfig files ([58f7942](https://github.com/siketyan/oxlint-plugin-import-access/commit/58f794259e2693ba8f0efb70b59def1dd1ef80fa))
+
+
+### Performance Improvements
+
+* find TypeScript project without RPC ([0c1690f](https://github.com/siketyan/oxlint-plugin-import-access/commit/0c1690fca9669e51cbe721fcedcab0e34655851c))
+* use position to get symbol ([0bf8817](https://github.com/siketyan/oxlint-plugin-import-access/commit/0bf8817c034cb13dd71b1f3d8dd61eb7aa81fa9b))
+
 ## [1.0.0](https://github.com/siketyan/oxlint-plugin-import-access/compare/v0.0.2...v1.0.0) (2026-07-16)
 
 

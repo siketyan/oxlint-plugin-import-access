@@ -15,7 +15,8 @@ import {
 import { API, type Project, type Symbol } from "typescript/unstable/sync";
 
 import { checkSymbolImportability } from "../core/checkSymbolImportability.js";
-import { PackageOptions } from "../utils/isInPackage.js";
+import type { PackageOptions } from "../utils/isInPackage.js";
+import { listTSConfigFiles } from "../utils/listTSConfigFiles.js";
 
 export type JSDocRuleOptions = {
   /**
@@ -118,39 +119,44 @@ export default defineRule({
       } as any,
     ],
   },
-  create(context) {
-    const { options } = context;
-
+  createOnce(context) {
     const snapshot = api.updateSnapshot({
-      openFiles: [context.filename],
+      openProjects: listTSConfigFiles(process.cwd()),
     });
 
-    const project = snapshot.getDefaultProjectForFile(context.filename);
-    if (!project) {
-      return {};
-    }
-
-    const {
-      indexLoophole,
-      filenameLoophole,
-      defaultImportability,
-      treatSelfReferenceAs,
-      excludeSourcePatterns,
-      packageDirectory,
-    } = jsDocRuleDefaultOptions(options[0] as JSDocRuleOptions);
-
-    const packageOptions: PackageOptions = {
-      indexLoophole,
-      filenameLoophole,
-      defaultImportability,
-      treatSelfReferenceAs,
-      excludeSourcePatterns,
-      packageDirectory,
-      projectDirectory: path.dirname(project.configFileName),
-    };
+    let project: Project | undefined;
+    let packageOptions: PackageOptions | undefined;
 
     return {
+      before() {
+        if (!(project = snapshot.getDefaultProjectForFile(context.filename))) {
+          return;
+        }
+
+        const {
+          indexLoophole,
+          filenameLoophole,
+          defaultImportability,
+          treatSelfReferenceAs,
+          excludeSourcePatterns,
+          packageDirectory,
+        } = jsDocRuleDefaultOptions(context.options[0] as JSDocRuleOptions);
+
+        packageOptions = {
+          indexLoophole,
+          filenameLoophole,
+          defaultImportability,
+          treatSelfReferenceAs,
+          excludeSourcePatterns,
+          packageDirectory,
+          projectDirectory: path.dirname(project.configFileName),
+        };
+      },
       ImportSpecifier(node) {
+        if (!project || !packageOptions) {
+          return;
+        }
+
         const sourceFilename = context.filename;
         if (!sourceFilename) {
           return;
@@ -165,7 +171,6 @@ export default defineRule({
 
         const tsNode = findTSNode<ImportSpecifier>(sourceFile, node, SyntaxKind.ImportSpecifier);
         if (!tsNode) {
-          console.log("Could not find TS node for ImportSpecifier");
           return;
         }
 
@@ -183,6 +188,10 @@ export default defineRule({
         }
       },
       ImportDefaultSpecifier(node) {
+        if (!project || !packageOptions) {
+          return;
+        }
+
         const sourceFilename = context.filename;
         if (!sourceFilename) {
           return;
@@ -209,10 +218,22 @@ export default defineRule({
             return;
           }
 
-          checkSymbol(context, packageOptions, project, node, tsNode, moduleSpecifier.text, symbol);
+          checkSymbol(
+            context,
+            packageOptions!,
+            project,
+            node,
+            tsNode,
+            moduleSpecifier.text,
+            symbol,
+          );
         }
       },
       ExportSpecifier(node) {
+        if (!project || !packageOptions) {
+          return;
+        }
+
         const sourceFilename = context.filename;
         if (!sourceFilename) {
           return;
@@ -227,7 +248,7 @@ export default defineRule({
 
         const tsNode = findTSNode<ExportSpecifier>(sourceFile, node, SyntaxKind.ExportSpecifier);
         if (!tsNode) {
-          throw new Error("Could not find TS node");
+          return;
         }
 
         const symbol = checker.getSymbolAtLocation(tsNode.name);
@@ -239,7 +260,7 @@ export default defineRule({
 
           checkSymbol(
             context,
-            packageOptions,
+            packageOptions!,
             project,
             node,
             tsNode,

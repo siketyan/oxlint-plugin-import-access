@@ -24,6 +24,10 @@
       "import": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -48,6 +52,11 @@
     "packageManager": {
       "name": "pnpm",
       "version": "11.13.1",
+      "onFail": "download"
+    },
+    "runtime": {
+      "name": "node",
+      "version": "24.18.0",
       "onFail": "download"
     }
   }

@@ -46,6 +46,13 @@ export type JSDocRuleOptions = {
    * Example: ["**", "!**\/_internal"] treats all directories as packages except those named "_internal".
    */
   packageDirectory?: string[];
+
+  /**
+   * Array of paths to tsconfig.json files to load as TypeScript projects.
+   * When specified, these paths are used instead of auto-discovering tsconfig.json files.
+   * Relative paths are resolved from the current working directory.
+   */
+  projects?: string[];
 };
 
 const api = new API();
@@ -95,6 +102,12 @@ export default defineRule({
               type: "string",
             },
           },
+          projects: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+          },
         },
         additionalProperties: false,
       },
@@ -111,12 +124,20 @@ export default defineRule({
     ],
   },
   createOnce(context) {
-    const tsconfigs = listTSConfigFiles(process.cwd());
-    const snapshot = api.updateSnapshot({
-      openProjects: tsconfigs,
-    });
+    let projectMap: ReturnType<typeof createTSProjectMap> | undefined;
 
-    const projectMap = createTSProjectMap(snapshot, tsconfigs);
+    function getProjectMap() {
+      if (!projectMap) {
+        const ruleOptions = context.options[0] as JSDocRuleOptions | undefined;
+        const tsconfigs = ruleOptions?.projects
+          ? ruleOptions.projects.map((p) => path.resolve(process.cwd(), p))
+          : listTSConfigFiles(process.cwd());
+
+        projectMap = createTSProjectMap(api.updateSnapshot({ openProjects: tsconfigs }), tsconfigs);
+      }
+
+      return projectMap;
+    }
 
     let project: Project | undefined;
     let sourceFile: SourceFile | undefined;
@@ -127,6 +148,7 @@ export default defineRule({
         sourceFile = undefined;
         packageOptions = undefined;
 
+        const projectMap = getProjectMap();
         if (!(project = projectMap.getProjectForFile(context.filename))) {
           return;
         }

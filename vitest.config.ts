@@ -2,7 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    setupFiles: ["./src/__tests__/setup.ts"],
-    environment: "node",
+    include: ["src/__tests__/**/*.ts"],
+    exclude: ["src/__tests__/fixtures/**"],
+    snapshotFormat: {
+      printBasicPrototype: true,
+    },
   },
 });

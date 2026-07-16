@@ -1,91 +1,88 @@
-import { minimatch } from "minimatch";
 import path from "node:path";
-import { defineRule, getParserServices } from "corsa-oxlint";
-import type { CorsaNode, CorsaSymbol } from "corsa-oxlint";
-import { getAccessOfJsDocs } from "../utils/get-access-of-jsdoc.js";
-import { getJsDocTagsFromCorsaNode } from "../utils/get-jsdoc-tags.js";
-import type { PackageOptions } from "../utils/is-in-package.js";
-import { isInPackage } from "../utils/is-in-package.js";
-import { lookupPackageJson } from "../utils/lookup-package-json.js";
+
+import { type Context, type Node as OxlintNode, defineRule } from "@oxlint/plugins";
+import {
+  type ExportDeclaration,
+  type ExportSpecifier,
+  type ImportClause,
+  type ImportDeclaration,
+  type ImportSpecifier,
+  type Node,
+  type SourceFile,
+  SyntaxKind,
+  isStringLiteral,
+} from "typescript/unstable/ast";
+import { API, type Project, type Symbol } from "typescript/unstable/sync";
+
+import { checkSymbolImportability } from "../core/checkSymbolImportability.js";
+import { PackageOptions } from "../utils/isInPackage.js";
 
 export type JSDocRuleOptions = {
+  /**
+   * Whether importing a package-private exports from `index.ts` in a subdirectory.
+   */
   indexLoophole: boolean;
+
+  /**
+   * Whether importing a package-private exports in a directory from a file of same name.
+   */
   filenameLoophole: boolean;
+
+  /**
+   * Whether packages importability is restricted to public exports only or not.
+   */
   defaultImportability: "public" | "package" | "private";
+
+  /**
+   * Whether to treat self-reference as internal or external.
+   * When `external`, imports using the self-referencing feature of Node.js are
+   * treated as imports from external packages, meaning that they bypass
+   * the importability check.
+   */
   treatSelfReferenceAs: "internal" | "external";
+
+  /**
+   * Array of glob patterns for source paths to exclude from the importability check.
+   * Useful for excluding generated files or auto-generated type definitions.
+   */
   excludeSourcePatterns?: string[];
+
+  /**
+   * Array of glob patterns that specify which directories should be treated as package boundaries.
+   * By default, all directories are treated as package boundaries.
+   * Use negation patterns (e.g., "!**\/_internal") to exclude certain directories from being package boundaries.
+   * Example: ["**", "!**\/_internal"] treats all directories as packages except those named "_internal".
+   */
   packageDirectory?: string[];
 };
 
-type MessageId =
-  | "no-program"
-  | "package"
-  | "package:reexport"
-  | "private"
-  | "private:reexport";
+const api = new API();
 
-export function jsDocRuleDefaultOptions(
-  options: Partial<JSDocRuleOptions> | undefined,
-): JSDocRuleOptions {
-  const {
-    indexLoophole = true,
-    filenameLoophole = false,
-    defaultImportability = "public",
-    treatSelfReferenceAs = "external",
-    excludeSourcePatterns = [],
-    packageDirectory = undefined,
-  } = options ?? {};
-  return {
-    indexLoophole,
-    filenameLoophole,
-    defaultImportability,
-    treatSelfReferenceAs,
-    excludeSourcePatterns,
-    packageDirectory,
-  };
-}
-
-const possibleSubpathImportFromPackage =
-  /^(?![./\\])([^/\\]*)(?:$|[/\\][^/\\])/;
-
-function checkIfImportIsSelfReference(
-  moduleSpecifier: string,
-  packageName: string,
-): boolean {
-  return (
-    moduleSpecifier === packageName ||
-    moduleSpecifier.startsWith(`${packageName}/`)
-  );
-}
-
-// TypeScript SymbolFlags.Alias = 2097152
-const ALIAS_FLAG = 2097152;
-
-// eslint-disable-next-line import-access/jsdoc
-export const jsdocRule = defineRule<MessageId, [Partial<JSDocRuleOptions>?]>({
+export default defineRule({
   meta: {
     type: "problem",
     docs: {
-      description: "Prohibit importing package-private exports.",
-      requiresTypeChecking: true,
-      url: "https://github.com/bitkey-service/oxlint-plugin-import-access",
+      description: "Prohibit importing private exports.",
+      url: "TODO",
     },
     messages: {
       "no-program":
-        "Type information is not available. Configure corsaOxlint settings to enable type-aware linting.",
+        "Type information is not available for this file. See https://typescript-eslint.io/getting-started/typed-linting/ for how to set this up.",
       package: "Cannot import a package-private export '{{ identifier }}'",
-      "package:reexport":
-        "Cannot re-export a package-private export '{{ identifier }}'",
+      "package:reexport": "Cannot re-export a package-private export '{{ identifier }}'",
       private: "Cannot import a private export '{{ identifier }}'",
-      "private:reexport":
-        "Cannot re-export a private export '{{ identifier }}'",
+      "private:reexport": "Cannot re-export a private export '{{ identifier }}'",
     },
     schema: [
       {
         type: "object",
         properties: {
-          indexLoophole: { type: "boolean" },
-          filenameLoophole: { type: "boolean" },
+          indexLoophole: {
+            type: "boolean",
+          },
+          filenameLoophole: {
+            type: "boolean",
+          },
           defaultImportability: {
             type: "string",
             enum: ["public", "package", "private"],
@@ -96,31 +93,43 @@ export const jsdocRule = defineRule<MessageId, [Partial<JSDocRuleOptions>?]>({
           },
           excludeSourcePatterns: {
             type: "array",
-            items: { type: "string" },
+            items: {
+              type: "string",
+            },
           },
           packageDirectory: {
             type: "array",
-            items: { type: "string" },
+            items: {
+              type: "string",
+            },
           },
         },
         additionalProperties: false,
       },
     ],
+    defaultOptions: [
+      {
+        indexLoophole: true,
+        filenameLoophole: false,
+        defaultImportability: "public",
+        treatSelfReferenceAs: "external",
+        excludeSourcePatterns: [],
+        packageDirectory: undefined,
+      } as any,
+    ],
   },
-  defaultOptions: [
-    {
-      indexLoophole: true,
-      filenameLoophole: false,
-      defaultImportability: "public",
-      treatSelfReferenceAs: "external",
-      excludeSourcePatterns: [],
-      packageDirectory: undefined,
-    },
-  ],
   create(context) {
-    const opts = jsDocRuleDefaultOptions(
-      context.options[0] as Partial<JSDocRuleOptions> | undefined,
-    );
+    const { options } = context;
+
+    const snapshot = api.updateSnapshot({
+      openFiles: [context.filename],
+    });
+
+    const project = snapshot.getDefaultProjectForFile(context.filename);
+    if (!project) {
+      return {};
+    }
+
     const {
       indexLoophole,
       filenameLoophole,
@@ -128,19 +137,7 @@ export const jsdocRule = defineRule<MessageId, [Partial<JSDocRuleOptions>?]>({
       treatSelfReferenceAs,
       excludeSourcePatterns,
       packageDirectory,
-    } = opts;
-
-    let services: ReturnType<typeof getParserServices> | undefined;
-    try {
-      services = getParserServices(context, true);
-    } catch {
-      return {};
-    }
-
-    if (!services) return {};
-
-    const checker = services.program.getTypeChecker();
-    const projectDirectory = services.program.getCurrentDirectory();
+    } = jsDocRuleDefaultOptions(options[0] as JSDocRuleOptions);
 
     const packageOptions: PackageOptions = {
       indexLoophole,
@@ -149,157 +146,204 @@ export const jsdocRule = defineRule<MessageId, [Partial<JSDocRuleOptions>?]>({
       treatSelfReferenceAs,
       excludeSourcePatterns,
       packageDirectory,
-      projectDirectory,
+      projectDirectory: path.dirname(project.configFileName),
     };
-
-    function resolveSymbolToExporter(
-      rawSymbol: CorsaSymbol,
-    ): { symbol: CorsaSymbol; declNode: CorsaNode } | null {
-      const declId =
-        rawSymbol.declarations[0] ?? rawSymbol.valueDeclaration;
-      if (!declId) return null;
-
-      const declNode = checker.getNodeById(declId);
-      if (!declNode) return null;
-
-      // If the declaration is in a different file, we have the actual exporter
-      if (declNode.fileName !== context.filename) {
-        return { symbol: rawSymbol, declNode };
-      }
-
-      // The symbol is a local alias (its declaration is in the current file).
-      // Attempt to resolve via the type system when the alias flag is set.
-      if (rawSymbol.flags & ALIAS_FLAG) {
-        const type = checker.getDeclaredTypeOfSymbol(rawSymbol);
-        if (type) {
-          const resolvedSymbol = checker.getSymbolOfType(type);
-          if (resolvedSymbol) {
-            const resolvedDeclId =
-              resolvedSymbol.declarations[0] ??
-              resolvedSymbol.valueDeclaration;
-            if (resolvedDeclId) {
-              const resolvedDeclNode = checker.getNodeById(resolvedDeclId);
-              if (
-                resolvedDeclNode &&
-                resolvedDeclNode.fileName !== context.filename
-              ) {
-                return {
-                  symbol: resolvedSymbol,
-                  declNode: resolvedDeclNode,
-                };
-              }
-            }
-          }
-        }
-      }
-
-      return null;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    function checkImport(node: any, moduleSpecifier: string, reexport: boolean): void {
-      const sourceFilename = context.filename;
-
-      // Skip self-references when treatSelfReferenceAs is "external"
-      if (
-        treatSelfReferenceAs === "external" &&
-        possibleSubpathImportFromPackage.test(moduleSpecifier)
-      ) {
-        const lookupResult = lookupPackageJson(sourceFilename);
-        if (
-          lookupResult?.packageJson.name != null &&
-          checkIfImportIsSelfReference(
-            moduleSpecifier,
-            lookupResult.packageJson.name as string,
-          )
-        ) {
-          return;
-        }
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-      const rawSymbol = services!.getSymbolAtLocation(node);
-      if (!rawSymbol) return;
-
-      const resolved = resolveSymbolToExporter(rawSymbol);
-      if (!resolved) return;
-
-      const { symbol, declNode } = resolved;
-      const exporterFileName = declNode.fileName;
-
-      // Skip files from external libraries (node_modules)
-      if (exporterFileName.includes("/node_modules/")) return;
-
-      // Check excludeSourcePatterns
-      if (excludeSourcePatterns && excludeSourcePatterns.length > 0) {
-        const relativePath = path.relative(projectDirectory, exporterFileName);
-        if (
-          excludeSourcePatterns.some((pattern) =>
-            minimatch(relativePath, pattern, { dot: true }),
-          )
-        ) {
-          return;
-        }
-      }
-
-      // Read source file and extract JSDoc tags from the declaration position
-      const sourceFile = services!.program.getSourceFile(exporterFileName);
-      if (!sourceFile) return;
-
-      const tags = getJsDocTagsFromCorsaNode(sourceFile.text, declNode);
-      const access = getAccessOfJsDocs(tags, defaultImportability);
-
-      if (access === "public") return;
-
-      if (access === "private") {
-        context.report({
-          node,
-          messageId: reexport ? "private:reexport" : "private",
-          data: { identifier: symbol.name },
-        });
-        return;
-      }
-
-      // access === "package": check if importer is in the same package as exporter
-      const inPackage = isInPackage(
-        sourceFilename,
-        exporterFileName,
-        packageOptions,
-      );
-      if (!inPackage) {
-        context.report({
-          node,
-          messageId: reexport ? "package:reexport" : "package",
-          data: { identifier: symbol.name },
-        });
-      }
-    }
 
     return {
       ImportSpecifier(node) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const importDecl = (node as any).parent;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        checkImport(node, importDecl.source.value as string, false);
-      },
+        const sourceFilename = context.filename;
+        if (!sourceFilename) {
+          return;
+        }
 
+        const checker = project.checker;
+
+        const sourceFile = project.program.getSourceFile(sourceFilename);
+        if (!sourceFile) {
+          throw new Error(`Could not find source file for ${sourceFilename}`);
+        }
+
+        const tsNode = findTSNode<ImportSpecifier>(sourceFile, node, SyntaxKind.ImportSpecifier);
+        if (!tsNode) {
+          console.log("Could not find TS node for ImportSpecifier");
+          return;
+        }
+
+        const symbol = checker.getSymbolAtLocation(tsNode.name);
+        if (symbol) {
+          const moduleSpecifier = (tsNode.parent.parent.parent as ImportDeclaration)
+            .moduleSpecifier;
+
+          if (!isStringLiteral(moduleSpecifier)) {
+            // Should not happen (as of TS 5.1)
+            return;
+          }
+
+          checkSymbol(context, packageOptions, project, node, tsNode, moduleSpecifier.text, symbol);
+        }
+      },
       ImportDefaultSpecifier(node) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const importDecl = (node as any).parent;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        checkImport(node, importDecl.source.value as string, false);
-      },
+        const sourceFilename = context.filename;
+        if (!sourceFilename) {
+          return;
+        }
 
+        const checker = project.checker;
+
+        const sourceFile = project.program.getSourceFile(sourceFilename);
+        if (!sourceFile) {
+          throw new Error(`Could not find source file for ${sourceFilename}`);
+        }
+
+        const tsNode = findTSNode<ImportClause>(sourceFile, node, SyntaxKind.ImportClause);
+        if (!tsNode?.name) {
+          return;
+        }
+
+        const symbol = checker.getSymbolAtLocation(tsNode.name);
+        if (symbol) {
+          const moduleSpecifier = (tsNode.parent as ImportDeclaration).moduleSpecifier;
+
+          if (!isStringLiteral(moduleSpecifier)) {
+            // Should not happen (as of TS 5.1)
+            return;
+          }
+
+          checkSymbol(context, packageOptions, project, node, tsNode, moduleSpecifier.text, symbol);
+        }
+      },
       ExportSpecifier(node) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const exportDecl = (node as any).parent;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        if (!exportDecl.source) return;
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        checkImport(node, exportDecl.source.value as string, true);
+        const sourceFilename = context.filename;
+        if (!sourceFilename) {
+          return;
+        }
+
+        const checker = project.checker;
+
+        const sourceFile = project.program.getSourceFile(sourceFilename);
+        if (!sourceFile) {
+          throw new Error(`Could not find source file for ${sourceFilename}`);
+        }
+
+        const tsNode = findTSNode<ExportSpecifier>(sourceFile, node, SyntaxKind.ExportSpecifier);
+        if (!tsNode) {
+          throw new Error("Could not find TS node");
+        }
+
+        const symbol = checker.getSymbolAtLocation(tsNode.name);
+        if (symbol) {
+          const moduleSpecifier = (tsNode.parent.parent as ExportDeclaration).moduleSpecifier;
+          if (!moduleSpecifier || !isStringLiteral(moduleSpecifier)) {
+            return;
+          }
+
+          checkSymbol(
+            context,
+            packageOptions,
+            project,
+            node,
+            tsNode,
+            moduleSpecifier.text,
+            symbol,
+            true,
+          );
+        }
       },
     };
   },
 });
 
-export default jsdocRule;
+function findTSNode<T extends Node>(
+  sourceFile: SourceFile,
+  node: OxlintNode,
+  kind: T["kind"],
+): T | undefined {
+  const { start, end } = node;
+
+  function find(haystack: Node): Node | undefined {
+    if (
+      haystack.kind === kind &&
+      haystack.getStart(sourceFile) === start &&
+      haystack.getEnd() === end
+    ) {
+      return haystack;
+    }
+
+    return haystack.forEachChild((child) => {
+      const found = find(child);
+      if (found) {
+        return found;
+      }
+    });
+  }
+
+  return find(sourceFile) as T | undefined;
+}
+
+function jsDocRuleDefaultOptions(options: Partial<JSDocRuleOptions> | undefined): JSDocRuleOptions {
+  const {
+    indexLoophole = true,
+    filenameLoophole = false,
+    defaultImportability = "public",
+    treatSelfReferenceAs = "external",
+    excludeSourcePatterns = [],
+    packageDirectory = undefined,
+  } = options || {};
+
+  return {
+    indexLoophole,
+    filenameLoophole,
+    defaultImportability,
+    treatSelfReferenceAs,
+    excludeSourcePatterns,
+    packageDirectory,
+  };
+}
+
+function checkSymbol(
+  context: Context,
+  packageOptions: PackageOptions,
+  project: Project,
+  originalNode: OxlintNode,
+  tsNode: Node,
+  moduleSpecifier: string,
+  symbol: Symbol,
+  reexport = false,
+): void {
+  const checker = project.checker;
+  const exsy = checker.getImmediateAliasedSymbol(symbol);
+  if (!exsy) {
+    return;
+  }
+
+  const checkResult = checkSymbolImportability(
+    packageOptions,
+    project,
+    tsNode.getSourceFile().fileName,
+    moduleSpecifier,
+    exsy,
+  );
+
+  switch (checkResult) {
+    case "package": {
+      context.report({
+        node: originalNode,
+        messageId: reexport ? "package:reexport" : "package",
+        data: {
+          identifier: exsy.name,
+        },
+      });
+      break;
+    }
+    case "private": {
+      context.report({
+        node: originalNode,
+        messageId: reexport ? "private:reexport" : "private",
+        data: {
+          identifier: exsy.name,
+        },
+      });
+      break;
+    }
+  }
+}

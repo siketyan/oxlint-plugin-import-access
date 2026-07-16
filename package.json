@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@oxlint/plugins": "1.74.0",
-    "corsa-oxlint": "1.0.0-beta.2",
     "minimatch": "10.2.5"
   },
   "devDependencies": {
@@ -27,6 +26,9 @@
     "oxlint": "1.74.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
   },
   "devEngines": {
     "packageManager": {

@@ -1,5 +1,8 @@
 # oxlint-plugin-import-access
 
+> [!NOTE]
+> This is not an officially supported product of Bitkey, Inc.
+
 > [!WARNING]
 > This plugin uses the **unstable** API in TypeScript 7.
 
